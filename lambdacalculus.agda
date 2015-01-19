@@ -105,6 +105,51 @@ data _⇒_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Exp Γ t → Set where
 data _⇒*_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Exp Γ t → Set where
    _∷_ :  {e e' e'' : Exp Γ t} → e ⇒ e' → e' ⇒* e'' → e ⇒* e''
    [] : {e : Exp Γ t} → e ⇒* e
+   
+data _⇒|_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Val Γ t → Set where
+  norm : {e : Exp Γ t} {a : Val Γ t} → e ⇒* val a → e ⇒| a
+  
+data Env : {n : ℕ} → Cxt n → Set where
+  [] : Env []
+  _∷_ : {n : ℕ}{t : Type}{Γ : Cxt n} → (e : Exp Γ t) → (s : Env Γ) → Env (t ∷ Γ)
+  
+
+envG : ∀ {m n t}  {Γ : Cxt m} → (Δ : Cxt n) → Exp (Δ ++ Γ) t → Env Γ → Exp Δ t
+envVG : ∀ {m n t} {Γ : Cxt m} → (Δ : Cxt n) → Val (Δ ++ Γ) t → Env Γ → Val Δ t
+envVar : ∀ {m n t} {Γ : Cxt m} → (Δ : Cxt n) → (x : Fin (n + m)) → (Δ ++ Γ) [ x ]= t → Env Γ → Exp Δ t ⊎ Σ (Fin n) (λ x → Δ [ x ]= t)
+envVar [] zero here (e ∷ s) = inj₁ (envG [] e s)
+envVar [] (suc x) (there p) (e ∷ s) = envVar [] x p s
+envVar (t ∷ Δ) zero here s = inj₂  (zero , here)
+envVar (t ∷ Δ) (suc x) (there p) s with envVar Δ x p s
+envVar (t ∷ Δ) (suc x) (there p) s | inj₁ e = inj₁ (t ∷E e) 
+envVar (t ∷ Δ) (suc x) (there p) s | inj₂ (x' , p') = inj₂ (suc x' , there p')
+
+envG Δ (val a) s = val (envVG Δ a s)
+envG Δ (var v ty) s with envVar Δ v ty s 
+envG Δ (var v ty) s | inj₁ x = x
+envG Δ (var v ty) s | inj₂ (v' , ty') = var v' ty'
+envG Δ (if e then e₁ else e₂) s = if envG Δ e s then envG Δ e₁ s else envG Δ e₂ s
+envG Δ (app e e₁) s = app (envG Δ e s) (envG Δ e₁ s)
+
+envVG Δ true s = true
+envVG Δ false s = false
+envVG Δ (ƛ {u = u} f) s = ƛ (envG (u ∷ Δ) f s)
+
+_⟪_⟫ : ∀ {n t} {Γ : Cxt n} → Exp Γ t → Env Γ → Exp [] t
+e ⟪ s ⟫ = envG [] e s
+
+Norm : ∀{n t}{Γ : Cxt n} → Exp Γ t → Set
+Norm {t = t} {Γ = Γ} e = Σ (Val Γ t) (λ a → e ⇒| a )
+
+SN : (t : Type) → Exp [] t → Set
+SN bool e = Norm e
+SN (u ↦ t) e = Norm e × ((e' : Exp [] u) → SN u e' → SN t (app e e'))
+
+
+  
+⇒norm : (t : Type) {e : Exp [] t} → SN t e → Norm e 
+⇒norm bool p = p 
+⇒norm (u ↦ t) (e , f) = e
 
 data _⇓_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Val Γ t → Set where
    ⇓val : (a : Val Γ t) → val a ⇓ a
@@ -114,3 +159,4 @@ data _⇓_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Val Γ t → Set where
        e ⇓ false → e1 ⇓ a → if e then e1 else e2 ⇓ a
    ⇓app : ∀{u}{f : Exp Γ (u ↦ t)}{f' : Exp (u ∷ Γ) t}{e : Exp Γ u}
            {a : Val Γ t} → (f ⇓ ƛ f') → (f' ⟨ e ⟩ ⇓ a) → app f e ⇓ a
+

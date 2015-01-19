@@ -94,7 +94,23 @@ subsV Δ (ƛ {u = u} f) e' = ƛ (subsE (u ∷ Δ) f e')
 _⟨_⟩ : ∀{ n u t } {Γ : Cxt n} → Exp (u ∷ Γ) t → Exp Γ u → Exp Γ t
 f ⟨ e ⟩ = subsE [] f e
 
-data _⇓_ {n : ℕ} {t : Type} {Γ : Cxt n} : Exp Γ t → Val Γ t → Set where
-   ⇓-val : (a : Val Γ t) → val a ⇓ a
-   ⇓-app : ∀{u} {f : Exp Γ (u ↦ t)} {f' : Exp (u ∷ Γ) t} {e : Exp Γ u} {a : Val Γ t} → 
-              (f ⇓ ƛ f') → (f' ⟨ e ⟩ ⇓ a) → app f e ⇓ a
+data _⇒_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Exp Γ t → Set where
+  ⇒iftrue : {e1 e2 : Exp Γ t} → if (val true) then e1 else e2 ⇒ e1
+  ⇒iffalse : {e1 e2 : Exp Γ t} → if (val false) then e1 else e2 ⇒ e1
+  ⇒ifred : {e e' : Exp Γ bool} {e1 e2 : Exp Γ t} → e ⇒ e' →
+         if e then e1 else e2 ⇒ if e' then e1 else e2
+  ⇒app : {u : Type} {f f' : Exp Γ (u ↦ t)} {e : Exp Γ u} → f ⇒ f' → app f e ⇒ app f' e
+  ⇒subs : {u : Type} {f : Exp (u ∷ Γ) t} {e : Exp Γ u} → app (val (ƛ f)) e ⇒  f ⟨ e ⟩ 
+  
+data _⇒*_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Exp Γ t → Set where
+   _∷_ :  {e e' e'' : Exp Γ t} → e ⇒ e' → e' ⇒* e'' → e ⇒* e''
+   [] : {e : Exp Γ t} → e ⇒* e
+
+data _⇓_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Val Γ t → Set where
+   ⇓val : (a : Val Γ t) → val a ⇓ a
+   ⇓iftrue : {e : Exp Γ bool}{e1 e2 : Exp Γ t}{a : Val Γ t} → 
+       e ⇓ true → e1 ⇓ a → if e then e1 else e2 ⇓ a
+   ⇓iffalse : {e : Exp Γ bool}{e1 e2 : Exp Γ t}{a : Val Γ t} → 
+       e ⇓ false → e1 ⇓ a → if e then e1 else e2 ⇓ a
+   ⇓app : ∀{u}{f : Exp Γ (u ↦ t)}{f' : Exp (u ∷ Γ) t}{e : Exp Γ u}
+           {a : Val Γ t} → (f ⇓ ƛ f') → (f' ⟨ e ⟩ ⇓ a) → app f e ⇓ a

@@ -103,8 +103,8 @@ data _⇒_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Exp Γ t → Set where
   ⇒subs : {u : Type} {f : Exp (u ∷ Γ) t} {e : Exp Γ u} → app (val (ƛ f)) e ⇒  f ⟨ e ⟩ 
   
 data _⇒*_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Exp Γ t → Set where
-   _∷_ :  {e e' e'' : Exp Γ t} → e ⇒ e' → e' ⇒* e'' → e ⇒* e''
    [] : {e : Exp Γ t} → e ⇒* e
+   _∷_ :  {e e' e'' : Exp Γ t} → e ⇒ e' → e' ⇒* e'' → e ⇒* e''
    
 data _⇒|_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Val Γ t → Set where
   norm : {e : Exp Γ t} {a : Val Γ t} → e ⇒* val a → e ⇒| a
@@ -113,6 +113,15 @@ data Env : {n : ℕ} → Cxt n → Set where
   [] : Env []
   _∷_ : {n : ℕ}{t : Type}{Γ : Cxt n} → (e : Exp Γ t) → (s : Env Γ) → Env (t ∷ Γ)
   
+⇒*-tran : ∀ {n t}{Γ : Cxt n}{e e' e'' : Exp Γ t} → 
+        e ⇒* e' → e' ⇒* e'' → e ⇒* e''
+⇒*-tran [] q = q
+⇒*-tran (x ∷ p) q = x ∷ ⇒*-tran p q
+
+⇒*-app : ∀ {n u t}{Γ : Cxt n}{e e' : Exp Γ (u ↦ t)}{e'' : Exp Γ u}{er : Exp Γ t} → 
+        e ⇒* e' → app e' e'' ⇒* er → app e e'' ⇒* er 
+⇒*-app [] q = q
+⇒*-app (x ∷ p) q = ⇒app x  ∷ ⇒*-app p q
 
 envG : ∀ {m n t}  {Γ : Cxt m} → (Δ : Cxt n) → Exp (Δ ++ Γ) t → Env Γ → Exp Δ t
 envVG : ∀ {m n t} {Γ : Cxt m} → (Δ : Cxt n) → Val (Δ ++ Γ) t → Env Γ → Val Δ t
@@ -138,18 +147,60 @@ envVG Δ (ƛ {u = u} f) s = ƛ (envG (u ∷ Δ) f s)
 _⟪_⟫ : ∀ {n t} {Γ : Cxt n} → Exp Γ t → Env Γ → Exp [] t
 e ⟪ s ⟫ = envG [] e s
 
+_⟪V_⟫ : ∀ {n t} {Γ : Cxt n} → Val Γ t → Env Γ → Val [] t
+e ⟪V s ⟫ = envVG [] e s
+
 Norm : ∀{n t}{Γ : Cxt n} → Exp Γ t → Set
 Norm {t = t} {Γ = Γ} e = Σ (Val Γ t) (λ a → e ⇒| a )
 
 SN : (t : Type) → Exp [] t → Set
-SN bool e = Norm e
-SN (u ↦ t) e = Norm e × ((e' : Exp [] u) → SN u e' → SN t (app e e'))
+SN' : (t : Type) → Exp [] t → Set
+
+SN t e = SN' t e × Norm e
+
+SN' bool e = Fin 1
+SN' (u ↦ t) e =  ((e' : Exp [] u) → SN u e' → SN t (app e e'))
 
 
+
+--appSNapp : ∀{n u}{Γ : Cxt n}(t : Type){e e' : Exp [] (u ↦ t)}
+--         {e'' : Exp [] u}  → 
+--       e' ⇒* e → SN t (app e e'') → SN t (app e' e'')
+--appSNapp bool p ((a , norm x) , zero) = (a , (norm (⇒*-app p x))) , zero )
+--appSNapp (t ↦ t₁) p ((a , norm x) , f) = ((a , norm (⇒*-app p x))) , 
+--         (λ e' x₁ → {!!})
+
+reduceSN :  ∀{t}{e : Exp [] (t)} → SN t e → Σ (Exp [] t) (λ e' → e ⇒*  e')
+reduceSN (proj₁ , proj₂ , norm x) = val proj₂ , x
+
+appendSN : ∀{n}{Γ : Cxt n}{t : Type}{e e' : Exp [] t} → 
+       e' ⇒* e → SN t e → SN t e'
+appendSN {t = bool} p (r , a , norm x) = r , a , norm (⇒*-tran p x)
+appendSN {t = u ↦ t}{e}{e'} p (f , a , norm x) = f' , a , norm (⇒*-tran p x)
+  where 
+    f' : (ex : Exp [] u) → SN u ex → SN t (app e' ex) 
+    f' ex sn with (f ex sn) 
+    f' ex sn | f'' , p₁ , norm q = appendSN (⇒*-app p q) {!!}
+ --appendSN (⇒*-app p (proj₂ (reduceSN l))) {!f ex sn!}
+
+--  (λ e'' x → ? ) 
+
+⇒normLem : ∀ {n} {Γ : Cxt n} → (t : Type) → 
+         (e : Exp Γ t) → (s : Env Γ) → SN t (e ⟪ s ⟫)
+⇒normLem bool (val a) s = zero , a ⟪V s ⟫ , norm [] 
+⇒normLem (t ↦ t₁) (val a) s = {!!}
+⇒normLem t (var zero here) (e ∷ s) = ⇒normLem t e s
+⇒normLem t (var (suc v) (there ty)) (e ∷ s) = ⇒normLem t (var v ty) s
+⇒normLem t (if e then e₁ else e₂) s with ⇒normLem bool e s 
+⇒normLem t (if e then e₁ else e₂) s | r , true , p with ⇒normLem t e₁ s
+⇒normLem t (if e then e₁ else e₂) s | r , true , norm x | a = {!!}
+⇒normLem t (if e then e₁ else e₂) s | r , false , p = {!!}
+⇒normLem t (app {u = u} e e') s with ⇒normLem (u ↦ t) e s
+⇒normLem t (app {u = u} e e') s | f , b with ⇒normLem u e' s 
+⇒normLem t (app e e') s | f , b | p = f (e' ⟪ s ⟫) p
   
 ⇒norm : (t : Type) {e : Exp [] t} → SN t e → Norm e 
-⇒norm bool p = p 
-⇒norm (u ↦ t) (e , f) = e
+⇒norm t (b , p) = p 
 
 data _⇓_ {n : ℕ}{t : Type}{Γ : Cxt n} : Exp Γ t → Val Γ t → Set where
    ⇓val : (a : Val Γ t) → val a ⇓ a

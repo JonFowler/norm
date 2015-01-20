@@ -5,6 +5,7 @@ open import Data.Nat
 open import Data.Fin hiding (_+_ ; _-_)
 open import Data.Sum
 open import Data.Product
+open import Relation.Binary.PropositionalEquality
 
 data Type : Set where
   bool : Type
@@ -113,10 +114,10 @@ data Env : {n : ℕ} → Cxt n → Set where
   [] : Env []
   _∷_ : {n : ℕ}{t : Type}{Γ : Cxt n} → (e : Exp Γ t) → (s : Env Γ) → Env (t ∷ Γ)
   
-⇒*-tran : ∀ {n t}{Γ : Cxt n}{e e' e'' : Exp Γ t} → 
+_+*_ : ∀ {n t}{Γ : Cxt n}{e e' e'' : Exp Γ t} → 
         e ⇒* e' → e' ⇒* e'' → e ⇒* e''
-⇒*-tran [] q = q
-⇒*-tran (x ∷ p) q = x ∷ ⇒*-tran p q
+_+*_ [] q = q
+_+*_ (x ∷ p) q = x ∷ (p +* q)
 
 ⇒*-app : ∀ {n u t}{Γ : Cxt n}{e e' : Exp Γ (u ↦ t)}{e'' : Exp Γ u}{er : Exp Γ t} → 
         e ⇒* e' → app e' e'' ⇒* er → app e e'' ⇒* er 
@@ -163,42 +164,114 @@ SN' (u ↦ t) e =  ((e' : Exp [] u) → SN u e' → SN t (app e e'))
 
 
 
---appSNapp : ∀{n u}{Γ : Cxt n}(t : Type){e e' : Exp [] (u ↦ t)}
---         {e'' : Exp [] u}  → 
---       e' ⇒* e → SN t (app e e'') → SN t (app e' e'')
---appSNapp bool p ((a , norm x) , zero) = (a , (norm (⇒*-app p x))) , zero )
---appSNapp (t ↦ t₁) p ((a , norm x) , f) = ((a , norm (⇒*-app p x))) , 
---         (λ e' x₁ → {!!})
+lem⇒ : (t : Type){e e' : Exp [] t}
+         → e ⇒ e' → SN t e'  → SN t e
+lem⇒ bool p (q , a , norm x) = zero , a , norm (p ∷ x)  
+lem⇒ (u ↦ t) {e}{e'} p (f , a , norm x) = l , a , norm (p ∷ x)
+  where l : (ev : Exp [] u) → SN u ev → SN t (app e ev)
+        l ev sn with f ev sn
+        l ev sn | sn' = lem⇒ t (⇒app p) sn'
+        
+lem⇒* : (t : Type){e e' : Exp [] t}
+         → e ⇒* e' → SN t e'  → SN t e
+lem⇒* t [] sn = sn
+lem⇒* t (x ∷ p) sn = lem⇒ t x (lem⇒* t p sn)
+        
+⇒-uniq : ∀{n}{t : Type}{Γ : Cxt n}{e e' e'' : Exp Γ t} → e ⇒ e' → e ⇒ e'' → e' ≡ e''
+⇒-uniq ⇒iftrue ⇒iftrue = refl
+⇒-uniq ⇒iftrue (⇒ifred ())
+⇒-uniq ⇒iffalse ⇒iffalse = refl
+⇒-uniq ⇒iffalse (⇒ifred ())
+⇒-uniq (⇒ifred ()) ⇒iftrue
+⇒-uniq (⇒ifred ()) ⇒iffalse
+⇒-uniq (⇒ifred {e1 = e1}{e2} p) (⇒ifred q) = cong (λ z → if z then e1 else e2) (⇒-uniq p q)
+⇒-uniq (⇒app {e = e} p) (⇒app q) = cong (λ z → app z e) (⇒-uniq p q)
+⇒-uniq (⇒app ()) ⇒subs
+⇒-uniq ⇒subs (⇒app ())
+⇒-uniq ⇒subs ⇒subs = refl
+        
+lem<= : (t : Type){e e' : Exp [] t}
+         → e ⇒ e' → SN t e  → SN t e'
+lem<= bool () (proj₁ , proj₂ , norm [])
+lem<= bool p (proj₁ , proj₂ , norm (x ∷ x₁)) with ⇒-uniq p x
+lem<= bool p (proj₁ , proj₂ , norm (x ∷ x₁)) | refl = proj₁ , proj₂ , norm x₁
+lem<= (t ↦ t₁) () (proj₁ , proj₂ , norm [])
+lem<= (t ↦ t₁) p (proj₁ , proj₂ , norm (x ∷ x₁)) with ⇒-uniq p x
+lem<= (t ↦ t₁) p (f , proj₂ , norm (x ∷ x₁)) | refl = 
+  (λ e' x₂ → lem<= t₁ (⇒app x) (f e' x₂)) , (proj₂ , norm x₁) 
+  
+lem<=* : (t : Type){e e' : Exp [] t}
+         → e ⇒* e' → SN t e  → SN t e'
+lem<=* t [] sn = sn
+lem<=* t (x ∷ p) sn = lem<=* t p (lem<= t x sn)
 
-reduceSN :  ∀{t}{e : Exp [] (t)} → SN t e → Σ (Exp [] t) (λ e' → e ⇒*  e')
-reduceSN (proj₁ , proj₂ , norm x) = val proj₂ , x
+mapIf : ∀{n} {Γ : Cxt n} {t : Type}  {e e' : Exp Γ bool} {e1 e2 : Exp Γ t} 
+      → e ⇒* e' → if e then e1 else e2 ⇒* if e' then e1 else e2
+mapIf [] = []
+mapIf (x ∷ p) = ⇒ifred x ∷ mapIf p
 
-appendSN : ∀{n}{Γ : Cxt n}{t : Type}{e e' : Exp [] t} → 
-       e' ⇒* e → SN t e → SN t e'
-appendSN {t = bool} p (r , a , norm x) = r , a , norm (⇒*-tran p x)
-appendSN {t = u ↦ t}{e}{e'} p (f , a , norm x) = f' , a , norm (⇒*-tran p x)
-  where 
-    f' : (ex : Exp [] u) → SN u ex → SN t (app e' ex) 
-    f' ex sn with (f ex sn) 
-    f' ex sn | f'' , p₁ , norm q = appendSN (⇒*-app p q) {!!}
- --appendSN (⇒*-app p (proj₂ (reduceSN l))) {!f ex sn!}
+ifLem :  (t : Type) {e : Exp [] bool} {e1 e2 : Exp [] t} → 
+          e ⇒* val true → SN t e1 → SN t (if e then e1 else e2)
+ifLem bool p (proj₁ , a , norm x₁) = proj₁ , a , norm (mapIf p +* (⇒iftrue ∷ x₁))
+ifLem (t ↦ t₁) {e}{e1}{e2} p (f , a , norm x) =  l , a , norm (mapIf p +* (⇒iftrue ∷ x))
+  where l : (ev : Exp [] t) → SN t ev → SN t₁ (app (if e then e1 else e2) ev)
+        l ev p' with f ev p'          
+        l ev (b , a , q) | b' , a' , q' = {!!} , ({!!} , {!!}) 
+        
+ras : ∀ {t m n}{Δ : Cxt m} (Γ : Cxt n) →
+    (x : Fin m) → Δ [ x ]= t → Σ (Fin (m + n)) (λ x' → (Δ ++ Γ [ x' ]= t))
+ras Γ zero here = zero , here
+ras Γ (suc x) (there p) with ras Γ x p 
+ras Γ (suc x) (there p) | x' , p' = suc x' , there p'
+
+genE : ∀ {t m n o}(Δ : Cxt m){Γ : Cxt n}{Γ' : Cxt o} → 
+     (∀{t' m'}(Δ' : Cxt m')(x : Fin (m' + n)) → Δ' ++ Γ [ x ]= t' → 
+            Exp (Δ' ++ Γ') t'  ⊎ Σ (Fin (m' + o)) (λ x' → Δ' ++ Γ' [ x' ]= t') ) → 
+     Exp (Δ ++ Γ) t → Exp (Δ ++ Γ') t
+
+genV : ∀ {t m n o}(Δ : Cxt m){Γ : Cxt n}{Γ' : Cxt o} → 
+   (∀{t' m'}(Δ' : Cxt m')(x : Fin (m' + n)) → Δ' ++ Γ [ x ]= t' → 
+            Exp (Δ' ++ Γ') t'  ⊎ Σ (Fin (m' + o)) (λ x' → Δ' ++ Γ' [ x' ]= t') ) → 
+   Val (Δ ++ Γ) t → Val (Δ ++ Γ') t
+genV Δ P true = true
+genV Δ P false = false
+genV Δ P (ƛ {u = u} f) = ƛ (genE (u ∷ Δ) P f)
+
+genE Δ P (val a) = val (genV Δ P a)
+genE Δ P (var v ty) with P Δ v ty 
+genE Δ P (var v ty) | inj₁ x = x
+genE Δ P (var v ty) | inj₂ (proj₁ , proj₂) = var proj₁ proj₂
+genE Δ P (if e then e₁ else e₂) = if genE Δ P e then genE Δ P e₁ else genE Δ P e₂
+genE Δ P (app e e₁) = app (genE Δ P e) (genE Δ P e₁)
+
+addΓV : ∀ {t m n}{Δ : Cxt m} (Γ : Cxt n) → Val Δ t → Val (Δ ++ Γ) t
+addΓ  : ∀ {t m n}{Δ : Cxt m} (Γ : Cxt n) → Exp Δ t → Exp (Δ ++ Γ) t
+addΓ Γ (val a) = val (addΓV Γ a)
+addΓ {m = m} Γ (var v ty) with ras Γ v ty
+addΓ Γ (var v ty) | proj₁ , proj₂ = var proj₁ proj₂ 
+addΓ Γ (if e then e₁ else e₂) = if addΓ Γ e then addΓ Γ e₁ else addΓ Γ e₂
+addΓ Γ (app e e₁) = app (addΓ Γ e) (addΓ Γ e₁)
+
+addΓV Γ true = true
+addΓV Γ false = false
+addΓV {Δ = Δ} Γ (ƛ {u = u} f) = ƛ (addΓ {Δ = u ∷ Δ} Γ f) 
 
 --  (λ e'' x → ? ) 
 
 ⇒normLem : ∀ {n} {Γ : Cxt n} → (t : Type) → 
          (e : Exp Γ t) → (s : Env Γ) → SN t (e ⟪ s ⟫)
 ⇒normLem bool (val a) s = zero , a ⟪V s ⟫ , norm [] 
-⇒normLem (t ↦ t₁) (val a) s = {!!}
-⇒normLem t (var zero here) (e ∷ s) = ⇒normLem t e s
+⇒normLem {Γ = Γ} (u ↦ t₁) (val (ƛ f)) s = (λ e' x → lem⇒ t₁ {!!} (z e' x)) , ƛ (envG (u ∷ []) f s)  , norm []
+  where z : (e' : Exp [] u) → SN u e' → SN t₁ (f ⟪ addΓ Γ e' ∷ s ⟫) 
+        z e' x = ⇒normLem t₁ f (_∷_ (addΓ Γ e') s) 
+⇒normLem t (var zero here) (e ∷ s) = {!!} -- ⇒normLem t e s
 ⇒normLem t (var (suc v) (there ty)) (e ∷ s) = ⇒normLem t (var v ty) s
 ⇒normLem t (if e then e₁ else e₂) s with ⇒normLem bool e s 
 ⇒normLem t (if e then e₁ else e₂) s | r , true , p with ⇒normLem t e₁ s
-⇒normLem t (if e then e₁ else e₂) s | r , true , norm x | a = {!!}
+⇒normLem t (if e then e₁ else e₂) s | r , true , norm x | a 
+  = let l = mapIf{e1 = e₁ ⟪ s ⟫}{e₂ ⟪ s ⟫} x +* (⇒iftrue ∷ []) in lem⇒* t l a
 ⇒normLem t (if e then e₁ else e₂) s | r , false , p = {!!}
-⇒normLem t (app {u = u} e e') s with ⇒normLem (u ↦ t) e s
-⇒normLem t (app {u = u} e e') s | f , b with ⇒normLem u e' s 
-⇒normLem t (app e e') s | f , b | p = f (e' ⟪ s ⟫) p
-  
+⇒normLem t (app {u = u} e e') s = {!!}  
 ⇒norm : (t : Type) {e : Exp [] t} → SN t e → Norm e 
 ⇒norm t (b , p) = p 
 
